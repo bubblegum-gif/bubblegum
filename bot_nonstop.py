@@ -1,8 +1,7 @@
 
-import feedparser, random, asyncio, requests, os, time, textwrap, json, pathlib
+import feedparser, random, asyncio, requests, os, time, textwrap, json, pathlib, re
 from datetime import datetime
 import edge_tts
-# FIX Pillow + moviepy yhteensopivuus
 import PIL.Image
 if not hasattr(PIL.Image, 'ANTIALIAS'):
     PIL.Image.ANTIALIAS = PIL.Image.LANCZOS
@@ -46,7 +45,7 @@ def get_fresh_news():
     for feed_url in RSS_FEEDS:
         try:
             feed = feedparser.parse(feed_url)
-            for entry in feed.entries[:10]:
+            for entry in feed.entries[:15]:
                 link = getattr(entry, 'link', entry.title)
                 if link not in used and len(entry.title) > 15:
                     return entry
@@ -54,10 +53,39 @@ def get_fresh_news():
             continue
     return None
 
+def clean_text(text):
+    text = re.sub(r'<[^<]+?>', '', text)
+    text = text.replace("&amp;", " and ").replace("&quot;", "").replace("&#39;", "'")
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text
+
+def make_prompt_from_news(title, summary):
+    clean = clean_text(title + " " + summary).lower()
+    styles = [
+        "funny parody, exaggerated meme style, absurd humor",
+        "dramatic breaking news, cinematic lighting, shocked expression",
+        "cute kawaii chibi, pastel bubblegum world, 3d pixar render",
+        "viral tiktok style, ultra cute, big eyes, funny"
+    ]
+    style = random.choice(styles)
+    if any(x in clean for x in ["house","home","building","istanbul","apartment","city","room"]):
+        base = f"bubblegum cute house with big kawaii eyes in {clean[:50]}, {style}, pink roof, shocked house"
+    elif any(x in clean for x in ["cat","dog","bear","animal","bird","puppy","kitten"]):
+        base = f"hero bubblegum {clean[:40]} animal wearing superhero cape, {style}, saving the day"
+    elif any(x in clean for x in ["car","plane","rocket","crash","explosion"]):
+        base = f"bubblegum {clean[:50]} in pink pastel world, {style}, funny explosion of bubbles"
+    elif any(x in clean for x in ["elon","trump","biden","musk","celebrity","man","woman","person"]):
+        base = f"bubblegum chibi parody of {clean[:50]}, pink bob hair, big blue eyes, {style}, NOT photorealistic, cute caricature"
+    else:
+        base = f"bubblegum viral news illustration: {title[:80]}, {style}, pink and purple pastel, ultra cute 3d"
+    final_prompt = f"{base}, bubblegum 3d character, kawaii, 1080x1920 vertical, pastel purple background, soft lighting, no text, no watermark"
+    return final_prompt
+
 def make_script(title, summary):
+    clean = clean_text(summary)[:180]
+    title_clean = clean_text(title)
     hook = random.choice(HOOKS)
-    clean = summary[:200].replace("<p>","").replace("</p>","").replace("\n"," ")
-    script = f"{hook}! {title}. So basically {clean}. What would YOU do? Follow for more bubblegum news!"
+    script = f"{hook}! {title_clean}. So basically {clean}. What would YOU do? Follow for more bubblegum news!"
     return script[:380]
 
 async def tts_free(text, output):
@@ -66,16 +94,17 @@ async def tts_free(text, output):
     await communicate.save(output)
     return output
 
-def make_image_free(news_text, output):
-    prompt = f"cute pink bubblegum 3d character shocked, kawaii, pastel background, bubbles, 3d render, ultra cute, {news_text[:70]}"
+def make_image_free(news_title, news_summary, output):
+    prompt = make_prompt_from_news(news_title, news_summary)
+    print(f"PROMPT: {prompt}")
     safe = requests.utils.quote(prompt)
-    url = f"https://image.pollinations.ai/prompt/{safe}?width=1080&height=1920&nologo=true&model=flux"
+    url = f"https://image.pollinations.ai/prompt/{safe}?width=1080&height=1920&nologo=true&model=flux&seed={random.randint(1,999999)}"
     try:
-        r = requests.get(url, timeout=40)
+        r = requests.get(url, timeout=50)
         r.raise_for_status()
         pathlib.Path(output).write_bytes(r.content)
     except Exception as e:
-        print(f"Image API fail {e}, using fallback")
+        print(f"Image API fail {e}, fallback")
         img = Image.new('RGB', (1080, 1920), color=(255, 182, 218))
         ImageDraw.Draw(img).ellipse([200, 400, 880, 1080], fill=(255,107,205))
         img.save(output)
@@ -83,85 +112,88 @@ def make_image_free(news_text, output):
 
 def add_caption_bar(image_path, script):
     img = Image.open(image_path).convert("RGBA")
+    w, h = img.size
+    overlay = Image.new('RGBA', (w, 420), (255, 107, 205, 235))
+    img.paste(overlay, (0, h-420), overlay)
+    top_overlay = Image.new('RGBA', (w, 100), (0,0,0,120))
+    img.paste(top_overlay, (0, 0), top_overlay)
     draw = ImageDraw.Draw(img)
-    overlay = Image.new('RGBA', (1080, 500), (255, 107, 205, 230))
-    img.paste(overlay, (0, 1420), overlay)
-    wrapped = textwrap.fill(script, width=30)
+    wrapped = textwrap.fill(script, width=28)
     try:
-        font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 44)
+        font_big = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 42)
+        font_small = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 38)
     except:
-        try:
-            font = ImageFont.truetype("DejaVuSans-Bold.ttf", 44)
-        except:
-            font = ImageFont.load_default()
-    draw.text((40, 1450), wrapped, fill=(255,255,255), font=font, stroke_width=3, stroke_fill=(50,0,50))
-    draw.text((30, 30), "BUBBLEGUM VIRALS", fill=(255,255,255), font=font, stroke_width=2, stroke_fill=(0,0,0))
+        font_big = ImageFont.load_default()
+        font_small = ImageFont.load_default()
+    draw.text((30, 20), "BUBBLEGUM VIRALS", fill=(255,255,255), font=font_big, stroke_width=3, stroke_fill=(0,0,0))
+    draw.text((40, h-380), wrapped, fill=(255,255,255), font=font_small, stroke_width=3, stroke_fill=(50,0,50))
     img.save(image_path)
     return image_path
 
-def make_video(image_path, audio_path, output):
+def make_video_MOVING(image_path, audio_path, output):
     audio = AudioFileClip(audio_path)
     duration = audio.duration
-    # KORJATTU: älä pakota pidemmäksi kuin audio on!
-    image = ImageClip(image_path).set_duration(duration).set_fps(30).resize((1080,1920))
-    final = image.set_audio(audio)
-    final.write_videofile(output, codec='libx264', audio_codec='aac', fps=24, logger=None)
+    def zoom(t):
+        return 1.0 + 0.18 * (t / duration) + 0.02 * (t % 1)
+    clip = ImageClip(image_path).set_duration(duration).resize(lambda t: zoom(t)).set_position(('center','center'))
+    clip = clip.resize(height=1920).set_position(('center','center')).crop(x_center=540, y_center=960, width=1080, height=1920)
+    final = clip.set_audio(audio).set_fps(24)
+    final.write_videofile(output, codec='libx264', audio_codec='aac', fps=24, preset='ultrafast', logger=None)
     return output
+
+def try_youtube_upload(video_path, title):
+    try:
+        token_json = os.environ.get('YOUTUBE_TOKEN_JSON')
+        if not token_json:
+            print("YOUTUBE_TOKEN_JSON puuttuu - skipataan auto-upload (video tallennettu artifactsiin)")
+            return False
+        from google.oauth2.credentials import Credentials
+        from googleapiclient.discovery import build
+        from googleapiclient.http import MediaFileUpload
+        creds = Credentials.from_authorized_user_info(json.loads(token_json), ['https://www.googleapis.com/auth/youtube.upload'])
+        youtube = build('youtube', 'v3', credentials=creds)
+        yt_title = f"{title[:60]}?! 😱 #shorts"
+        desc = f"{title}\n\nThis bubblegum viral story is insane! 🤯\n\n#shorts #viral #news #bubblegumvirals\n\nSource: RSS News\n@bubblegum-r2w\n"
+        body = {
+            "snippet": {"title": yt_title[:100], "description": desc[:5000], "tags": ["shorts","viral","news","funny"], "categoryId": "24"},
+            "status": {"privacyStatus": "public", "selfDeclaredMadeForKids": False}
+        }
+        media = MediaFileUpload(video_path, mimetype='video/mp4', resumable=True)
+        req = youtube.videos().insert(part="snippet,status", body=body, media_body=media)
+        resp = req.execute()
+        print(f"YOUTUBE UPLOADED: https://youtube.com/watch?v={resp['id']}")
+        return True
+    except Exception as e:
+        print(f"YouTube skip: {e}")
+        return False
 
 async def generate_one_video():
     news = get_fresh_news()
     if not news:
-        print("Ei uutta uutista, odotetaan...")
+        print("Ei uutta uutista")
         return None
-    title = news.title
-    summary = getattr(news, 'summary', title)
+    title = clean_text(news.title)
+    summary = clean_text(getattr(news, 'summary', title))
     script = make_script(title, summary)
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     img_path = f"{OUTPUT_DIR}/frame_{timestamp}.png"
     voice_path = f"{OUTPUT_DIR}/voice_{timestamp}.mp3"
     video_path = f"{OUTPUT_DIR}/bubblegum_{timestamp}.mp4"
-    print(f"--- UUSI VIDEO ---\nUutinen: {title}\nScript: {script}")
-    make_image_free(title, img_path)
+    print(f"--- UUSI VIDEO v3 ---\\nUutinen: {title}\\nScript: {script}")
+    make_image_free(title, summary, img_path)
     add_caption_bar(img_path, script)
     await tts_free(script, voice_path)
-    make_video(img_path, voice_path, video_path)
+    make_video_MOVING(img_path, voice_path, video_path)
     save_used(getattr(news, 'link', title))
     try:
         os.remove(img_path)
         os.remove(voice_path)
     except:
         pass
+    try_youtube_upload(video_path, title)
     print(f"VALMIS: {video_path}")
-    # YOUTUBE AUTO-UPLOAD (turvallinen max 3/päivä)
-    try:
-        from youtube_upload import make_viral_meta, upload_to_youtube
-        yt_title, yt_desc, yt_tags = make_viral_meta(title)
-        upload_to_youtube(video_path, yt_title, yt_desc, yt_tags)
-    except Exception as e:
-        print(f"YouTube skip: {e}")
     return video_path
 
-async def loop_nonstop():
-    count = 0
-    while True:
-        try:
-            result = await generate_one_video()
-            if result:
-                count += 1
-                print(f"Videoita tehty: {count}")
-                await asyncio.sleep(90)
-            else:
-                await asyncio.sleep(300)
-        except KeyboardInterrupt:
-            break
-        except Exception as e:
-            print(f"Virhe: {e}")
-            await asyncio.sleep(60)
-
 if __name__ == "__main__":
-    import sys
-    if len(sys.argv) > 1 and sys.argv[1] == "--loop":
-        asyncio.run(loop_nonstop())
-    else:
-        asyncio.run(generate_one_video())
+    asyncio.run(generate_one_video())
 
