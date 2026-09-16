@@ -1,0 +1,27 @@
+
+name: Bubblegum Non-Stop FREE
+on:
+  schedule:
+    - cron: '0 6,10,14,18,22 * * *' # 5x päivässä ilmaiseksi
+  workflow_dispatch:
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      - name: Asenna FFmpeg (ilmainen)
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Asenna kirjastot (ilmainen)
+        run: pip install -r requirements.txt
+      - name: Generoi 1 video
+        run: python bot_nonstop.py
+      - name: Tallenna video
+        uses: actions/upload-artifact@v3
+        with:
+          name: bubblegum-video-${{ github.run_number }}
+          path: output_videos/*.mp4
+          retention-days: 7
