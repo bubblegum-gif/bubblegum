@@ -1,0 +1,7 @@
+feedparser
+edge-tts
+moviepy==1.0.3
+Pillow==9.5.0
+requests
+google-api-python-client
+google-auth
