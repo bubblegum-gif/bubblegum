@@ -59,7 +59,23 @@ def make_script(title, summary):
     clean = summary[:200].replace("<p>","").replace("</p>","").replace("\n"," ")
     script = f"{hook}! {title}. So basically {clean}. What would YOU do? Follow for more bubblegum news!"
     return script[:380]
+# LISÄÄ TÄMÄ FUNKTIO make_script jälkeen bot_nonstop.py tiedostoon:
 
+def make_viral_meta(title):
+    titles = [
+        f"{title[:50]}?! 😱",
+        f"NO WAY! {title[:40]}",
+        f"POV: {title[:45]}",
+        f"Breaking: {title[:50]}"
+    ]
+    hashtags_tiktok = ["#viral","#news","#fyp","#bubblegum","#wtf","#funny","#breaking","#crazy","#omg","#trending"]
+    hashtags_yt = ["#shorts","#viral","#news"]
+    import random
+    return {
+        "title": random.choice(titles),
+        "tiktok": " ".join(random.sample(hashtags_tiktok, 5)),
+        "youtube": " ".join(hashtags_yt)
+    }
 async def tts_free(text, output):
     voice = "en-US-JennyNeural"
     communicate = edge_tts.Communicate(text, voice, rate="+10%")
@@ -157,3 +173,4 @@ if __name__ == "__main__":
         asyncio.run(loop_nonstop())
     else:
         asyncio.run(generate_one_video())
+
